@@ -2,150 +2,65 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>R448A CoolProp 粘度計算</title>
 <style>
-:root{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17202a;background:#f4f7fa}
-body{margin:0;padding:18px}
-main{max-width:980px;margin:auto}
-h1{font-size:1.45rem;margin:.2rem 0 .5rem}
-.note{background:#fff3cd;border:1px solid #ffe69c;padding:12px;border-radius:10px;margin:10px 0}
-.ok{background:#d1e7dd;border-color:#badbcc}.err{background:#f8d7da;border-color:#f5c2c7}
-.card{background:#fff;border-radius:12px;padding:14px;box-shadow:0 1px 5px #0002;margin:12px 0}
-button{font-size:1rem;padding:11px 15px;border:0;border-radius:9px;background:#1261a0;color:#fff;margin:4px}
-button.secondary{background:#59636e}
-table{width:100%;border-collapse:collapse;font-size:.86rem}
-th,td{border:1px solid #d9e0e6;padding:6px;text-align:right}
-th:first-child,td:first-child{text-align:center}
-th{background:#eaf2f8;position:sticky;top:0}
-.scroll{overflow:auto;max-height:55vh}
-code{word-break:break-all}
-.small{font-size:.83rem;color:#47515c}
+body{font-family:system-ui,sans-serif;background:#f5f7fa;margin:0;padding:18px;color:#17202a}
+main{max-width:980px;margin:auto}.card{background:white;padding:14px;margin:12px 0;border-radius:12px}
+.notice{padding:12px;border-radius:10px;background:#fff3cd}.ok{background:#d1e7dd}.err{background:#f8d7da}
+button{padding:11px 14px;margin:4px;border:0;border-radius:9px;background:#1261a0;color:white;font-size:1rem}
+button:disabled{opacity:.45}table{border-collapse:collapse;width:100%;font-size:.84rem}
+th,td{border:1px solid #d8dee4;padding:6px;text-align:right}th{background:#eaf2f8}th:first-child,td:first-child{text-align:center}
+.scroll{overflow:auto}code{word-break:break-all}
 </style>
 </head>
-<body>
-<main>
+<body><main>
 <h1>R448A CoolProp 8.0.0 粘度計算</h1>
-<div id="status" class="note">CoolPropを読み込み中です。<br>
-同じフォルダに <b>coolprop.js</b> と <b>coolprop.wasm</b> が必要です。</div>
-
+<div id="status" class="notice">CoolPropを読み込み中…</div>
 <div class="card">
-  <button id="run" disabled>-40～+50℃ 19点を計算</button>
-  <button id="csv" class="secondary" disabled>CSVを保存</button>
-  <button id="copy" class="secondary" disabled>CSVをコピー</button>
-  <p class="small">計算条件：飽和蒸気 Q=1、飽和液 Q=0。温度は5℃刻み。R448A.mix → R448A の順で試します。</p>
+<button id="run" disabled>-40～+50℃ 19点を計算</button>
+<button id="csv" disabled>CSV保存</button>
+<p>必要ファイル：index.html / coolprop.js / coolprop.wasm を同じ階層に配置してください。</p>
 </div>
-
-<div class="card">
-<h2 style="font-size:1.05rem">検証</h2>
-<div id="validation" class="small">未計算</div>
-</div>
-
-<div class="card">
-<div class="scroll">
-<table>
-<thead><tr>
-<th>℃</th><th>蒸気粘度<br>μPa·s</th><th>液粘度<br>μPa·s</th>
-<th>蒸気密度<br>kg/m³</th><th>液密度<br>kg/m³</th>
-<th>蒸気圧<br>bar(a)</th><th>液圧<br>bar(a)</th><th>状態</th>
-</tr></thead>
-<tbody id="tbody"></tbody>
-</table>
-</div>
-</div>
-
-<div class="card small">
-<b>公式資料</b><br>
-CoolProp JavaScript wrapperは <code>coolprop.js</code> と <code>coolprop.wasm</code> を同一Webサーバーから配信して使用します。<br>
-25℃照合値（Honeywell Solstice N40 TDS）：蒸気粘度 12.5 μPa·s、液粘度 138.1 μPa·s。
-</div>
-</main>
-
+<div class="card"><b>25℃ Honeywell照合</b><div id="check">未計算</div></div>
+<div class="card scroll"><table><thead><tr><th>℃</th><th>蒸気 μPa·s</th><th>液 μPa·s</th><th>状態</th></tr></thead><tbody id="body"></tbody></table></div>
 <script type="module">
-const statusEl = document.getElementById('status');
-const runBtn = document.getElementById('run');
-const csvBtn = document.getElementById('csv');
-const copyBtn = document.getElementById('copy');
-const tbody = document.getElementById('tbody');
-const validation = document.getElementById('validation');
-let CP = null, results = [], fluidName = '';
-
-function setStatus(msg, cls='note'){ statusEl.className=cls; statusEl.innerHTML=msg; }
-function fmt(x,n=4){ return Number.isFinite(x) ? x.toFixed(n) : ''; }
-
-async function loadCP(){
-  try{
-    const mod = await import('./coolprop.js');
-    CP = await mod.default();
-    const candidates=['R448A.mix','R448A'];
-    for(const f of candidates){
-      try{
-        const v=CP.PropsSI('VISCOSITY','T',298.15,'Q',1,f);
-        if(Number.isFinite(v)){ fluidName=f; break; }
-      }catch(e){}
-    }
-    if(!fluidName) throw new Error('R448Aの状態計算に成功しませんでした');
-    setStatus(`CoolProp読込成功。使用冷媒名: <b>${fluidName}</b>`, 'note ok');
-    runBtn.disabled=false;
-  }catch(e){
-    setStatus(`読込失敗：${e.message}<br><span class="small">coolprop.js / coolprop.wasm が同じフォルダにあり、HTTPSサーバー上で配信されているか確認してください。</span>`, 'note err');
-  }
+const status=document.getElementById('status'), run=document.getElementById('run'), csv=document.getElementById('csv'), body=document.getElementById('body'), check=document.getElementById('check');
+let CP, fluid='', rows=[];
+async function start(){
+ try{
+   const mod=await import('./coolprop.js');
+   CP=await mod.default({locateFile:(path)=> path.endsWith('.wasm') ? './coolprop.wasm' : './'+path});
+   for(const f of ['R448A.mix','R448A']){
+     try{const x=CP.PropsSI('VISCOSITY','T',298.15,'Q',1,f);if(Number.isFinite(x)){fluid=f;break}}catch(e){}
+   }
+   if(!fluid) throw new Error('R448Aの計算を開始できませんでした');
+   status.className='notice ok';status.innerHTML='読込成功：<b>'+fluid+'</b>';run.disabled=false;
+ }catch(e){
+   status.className='notice err';
+   status.innerHTML='読込失敗：'+e.message+'<br><small>GitHubのリポジトリ直下に index.html / coolprop.js / coolprop.wasm の3ファイルがあるか確認してください。</small>';
+ }
 }
-
-function calcOne(tC){
-  const T=tC+273.15;
-  try{
-    const muV=CP.PropsSI('VISCOSITY','T',T,'Q',1,fluidName)*1e6;
-    const muL=CP.PropsSI('VISCOSITY','T',T,'Q',0,fluidName)*1e6;
-    const rhoV=CP.PropsSI('D','T',T,'Q',1,fluidName);
-    const rhoL=CP.PropsSI('D','T',T,'Q',0,fluidName);
-    const pV=CP.PropsSI('P','T',T,'Q',1,fluidName)/1e5;
-    const pL=CP.PropsSI('P','T',T,'Q',0,fluidName)/1e5;
-    return {tC,muV,muL,rhoV,rhoL,pV,pL,status:'OK'};
-  }catch(e){
-    return {tC,status:e.message};
-  }
+function one(c){
+ try{
+   const T=c+273.15;
+   return {c,v:CP.PropsSI('VISCOSITY','T',T,'Q',1,fluid)*1e6,l:CP.PropsSI('VISCOSITY','T',T,'Q',0,fluid)*1e6,s:'OK'};
+ }catch(e){return {c,s:e.message}}
 }
-
-function render(){
-  tbody.innerHTML='';
-  for(const r of results){
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${r.tC}</td><td>${fmt(r.muV,3)}</td><td>${fmt(r.muL,3)}</td>
-    <td>${fmt(r.rhoV,4)}</td><td>${fmt(r.rhoL,2)}</td>
-    <td>${fmt(r.pV,5)}</td><td>${fmt(r.pL,5)}</td><td style="text-align:left">${r.status}</td>`;
-    tbody.appendChild(tr);
-  }
-}
-
-function makeCsv(){
-  const lines=[['Temp_C','Vapor_viscosity_uPa_s','Liquid_viscosity_uPa_s','Vapor_density_kg_m3','Liquid_density_kg_m3','Vapor_pressure_bar_a','Liquid_pressure_bar_a','Status','CoolProp_fluid']];
-  for(const r of results) lines.push([r.tC,r.muV??'',r.muL??'',r.rhoV??'',r.rhoL??'',r.pV??'',r.pL??'',r.status,fluidName]);
-  return lines.map(row=>row.map(v=>`"${String(v).replaceAll('"','""')}"`).join(',')).join('\r\n');
-}
-
-runBtn.onclick=()=>{
-  results=[];
-  for(let t=-40;t<=50;t+=5) results.push(calcOne(t));
-  render();
-  const r25=results.find(r=>r.tC===25);
-  if(r25 && r25.status==='OK'){
-    const dv=(r25.muV-12.5)/12.5*100;
-    const dl=(r25.muL-138.1)/138.1*100;
-    validation.innerHTML=`25℃ Honeywell照合：蒸気 ${fmt(r25.muV,3)} μPa·s（差 ${fmt(dv,2)}%）、液 ${fmt(r25.muL,3)} μPa·s（差 ${fmt(dl,2)}%）。<br>
-    <b>${Math.abs(dv)<=5 && Math.abs(dl)<=5 ? '5%以内：一次照合OK' : '差が5%超：Excel採用前に要確認'}</b>`;
-  } else validation.textContent='25℃の計算に失敗しました。';
-  csvBtn.disabled=false; copyBtn.disabled=false;
+run.onclick=()=>{
+ rows=[];for(let c=-40;c<=50;c+=5)rows.push(one(c));
+ body.innerHTML=rows.map(r=>`<tr><td>${r.c}</td><td>${r.v?.toFixed(3)??''}</td><td>${r.l?.toFixed(3)??''}</td><td>${r.s}</td></tr>`).join('');
+ const p=rows.find(x=>x.c===25);
+ if(p?.s==='OK'){
+   const dv=(p.v-12.5)/12.5*100, dl=(p.l-138.1)/138.1*100;
+   check.innerHTML=`CoolProp 蒸気 ${p.v.toFixed(3)}（差 ${dv.toFixed(2)}%）／液 ${p.l.toFixed(3)}（差 ${dl.toFixed(2)}%）`;
+ }
+ csv.disabled=false;
 };
-
-csvBtn.onclick=()=>{
-  const blob=new Blob([makeCsv()],{type:'text/csv;charset=utf-8'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download='R448A_CoolProp_8.0.0_viscosity_-40_to_50C.csv'; a.click();
-  URL.revokeObjectURL(a.href);
+csv.onclick=()=>{
+ let s='Temp_C,Vapor_viscosity_uPa_s,Liquid_viscosity_uPa_s,Status\n'+rows.map(r=>`${r.c},${r.v??''},${r.l??''},"${r.s}"`).join('\n');
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([s],{type:'text/csv'}));a.download='R448A_viscosity_19points.csv';a.click();
 };
-copyBtn.onclick=async()=>{ await navigator.clipboard.writeText(makeCsv()); alert('CSVをコピーしました'); };
-
-loadCP();
+start();
 </script>
-</body></html>
+</main></body></html>
